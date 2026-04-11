@@ -116,10 +116,8 @@ class RepoScan:
     core_apply_to: str
     ui_apply_to: str
     tests_apply_to: str
-    core_layout: str
-    ui_layout: str
-    tests_layout: str
     optional_domains: list[str]
+    optional_apply_to: dict[str, str]
     optional_evidence: dict[str, str]
 
 
@@ -210,7 +208,6 @@ def _collect_dir_data(rel_files: list[Path]) -> tuple[set[str], set[str]]:
 
 
 def _is_test_path(rel: Path) -> bool:
-    lower = rel.as_posix().lower()
     parts = [part.lower() for part in rel.parts]
     if any(token in TEST_TOKENS for token in parts):
         return True
@@ -225,36 +222,78 @@ def _is_ui_path(rel: Path) -> bool:
     return rel.suffix.lower() in UI_EXTENSIONS
 
 
-def _detect_domain_hits(rel_files: list[Path], dir_paths: set[str], dir_parts: set[str]) -> tuple[list[str], dict[str, str]]:
+def _match_dir_paths_for_token(token: str, dir_paths: set[str], dir_parts: set[str]) -> set[str]:
+    token_lower = token.lower().strip("/")
+    matches: set[str] = set()
+
+    if "/" in token_lower:
+        for path in dir_paths:
+            if path == token_lower or path.endswith(f"/{token_lower}"):
+                matches.add(path)
+        return matches
+
+    if token_lower not in dir_parts:
+        return matches
+
+    for path in dir_paths:
+        if token_lower in path.split("/"):
+            matches.add(path)
+    return matches
+
+
+def _common_prefix_path(paths: list[str]) -> str:
+    if not paths:
+        return ""
+    prefix_parts = paths[0].split("/")
+    for path in paths[1:]:
+        parts = path.split("/")
+        i = 0
+        while i < len(prefix_parts) and i < len(parts) and prefix_parts[i] == parts[i]:
+            i += 1
+        prefix_parts = prefix_parts[:i]
+        if not prefix_parts:
+            return ""
+    return "/".join(prefix_parts)
+
+
+def _optional_apply_to(domain: str, matched_dirs: set[str]) -> str:
+    if not matched_dirs:
+        return f"{domain}/**"
+    common = _common_prefix_path(sorted(matched_dirs))
+    if common:
+        return f"{common}/**"
+    return f"{domain}/**"
+
+
+def _detect_domain_hits(
+    rel_files: list[Path], dir_paths: set[str], dir_parts: set[str]
+) -> tuple[list[str], dict[str, str], dict[str, str]]:
     lower_paths = [rel.as_posix().lower() for rel in rel_files]
     selected: list[str] = []
     evidence: dict[str, str] = {}
+    apply_to: dict[str, str] = {}
 
     for domain in OPTIONAL_DOMAIN_ORDER:
         rule = OPTIONAL_DOMAIN_RULES[domain]
         dir_tokens = rule["dir_tokens"]
         keywords = rule["responsibility_keywords"]
 
-        dir_hit = False
+        matched_dirs: set[str] = set()
         for token in dir_tokens:
-            token_lower = token.lower()
-            if "/" in token_lower:
-                if any(path == token_lower or path.endswith(f"/{token_lower}") for path in dir_paths):
-                    dir_hit = True
-                    break
-            elif token_lower in dir_parts:
-                dir_hit = True
-                break
+            matched_dirs.update(_match_dir_paths_for_token(token, dir_paths, dir_parts))
+
+        dir_hit = bool(matched_dirs)
 
         duty_hit = any(keyword in path for keyword in keywords for path in lower_paths)
 
         if dir_hit and duty_hit:
             selected.append(domain)
             evidence[domain] = "dir+responsibility"
+            apply_to[domain] = _optional_apply_to(domain, matched_dirs)
         if len(selected) >= 5:
             break
 
-    return selected, evidence
+    return selected, evidence, apply_to
 
 
 def scan_repo(repo_path: Path) -> RepoScan:
@@ -294,7 +333,14 @@ def scan_repo(repo_path: Path) -> RepoScan:
     tests_parent = _common_parent([repo_path / rel for rel in test_files], repo_path)
 
     src_exists = (repo_path / "src").exists()
-    core_default = "src/**" if src_exists else "**"
+    if src_exists:
+        core_default = "src/**"
+    elif (repo_path / "backend").exists():
+        core_default = "backend/**"
+    elif (repo_path / "app").exists():
+        core_default = "app/**"
+    else:
+        core_default = "src/**"
 
     if ui_parent is None:
         if (repo_path / "src" / "ui").exists():
@@ -317,11 +363,9 @@ def scan_repo(repo_path: Path) -> RepoScan:
     if tests_parent is None:
         tests_apply_to = tests_default
 
-    core_layout = core_apply_to
-    ui_layout = ui_apply_to
-    tests_layout = tests_apply_to
-
-    optional_domains, optional_evidence = _detect_domain_hits(rel_files, dir_paths, dir_parts)
+    optional_domains, optional_evidence, optional_apply_to = _detect_domain_hits(
+        rel_files, dir_paths, dir_parts
+    )
 
     return RepoScan(
         rel_files=rel_files,
@@ -333,10 +377,8 @@ def scan_repo(repo_path: Path) -> RepoScan:
         core_apply_to=core_apply_to,
         ui_apply_to=ui_apply_to,
         tests_apply_to=tests_apply_to,
-        core_layout=core_layout,
-        ui_layout=ui_layout,
-        tests_layout=tests_layout,
         optional_domains=optional_domains,
+        optional_apply_to=optional_apply_to,
         optional_evidence=optional_evidence,
     )
 
@@ -353,13 +395,13 @@ def rewrite_copilot_instructions(template: str, scan: RepoScan) -> str:
     for line in template.splitlines():
         stripped = line.strip()
         if stripped.startswith("- Python code MUST stay under"):
-            result.append(f"- Core code MUST stay under `{scan.core_layout}`")
+            result.append(f"- Core code MUST stay under `{scan.core_apply_to}`")
             continue
         if stripped.startswith("- QML code MUST stay under"):
-            result.append(f"- UI code MUST stay under `{scan.ui_layout}`")
+            result.append(f"- UI code MUST stay under `{scan.ui_apply_to}`")
             continue
         if stripped.startswith("- Tests MUST stay under"):
-            result.append(f"- Tests MUST stay under `{scan.tests_layout}`")
+            result.append(f"- Tests MUST stay under `{scan.tests_apply_to}`")
             continue
         if stripped.startswith("- Python SHOULD NOT include `__init__.py`"):
             if scan.has_python:
@@ -386,7 +428,7 @@ def rewrite_copilot_instructions(template: str, scan: RepoScan) -> str:
                 result.append(line)
             continue
         if stripped.startswith("- `uv run python -m unittest discover -s tests -p \"test_*.py\" -v`"):
-            if scan.has_python or scan.has_tests:
+            if scan.has_python:
                 result.append(line)
             continue
         result.append(line)
@@ -490,7 +532,9 @@ def _instruction_checks(domain: str, scan: RepoScan) -> list[str]:
             "fix findings before `uv run pyside6-qmlformat -i`",
         ]
     if domain == "tests":
-        return ["`uv run python -m unittest discover -s tests -p \"test_*.py\" -v`"]
+        if scan.has_python:
+            return ["`uv run python -m unittest discover -s tests -p \"test_*.py\" -v`"]
+        return ["Use repository-level test checks defined in `.github/copilot-instructions.md`."]
     return ["Use repository-level checks defined in `.github/copilot-instructions.md`."]
 
 
@@ -576,7 +620,7 @@ def initialize_baseline(repo_path: Path, dry_run: bool, overwrite: bool) -> int:
     for domain in scan.optional_domains:
         writer.write_text(
             repo_path / ".github" / "instructions" / f"{domain}.instructions.md",
-            render_instruction(domain, "**", scan),
+            render_instruction(domain, scan.optional_apply_to.get(domain, f"{domain}/**"), scan),
         )
 
     writer.copy_file(seed_root / "specs" / "index.md", repo_path / "specs" / "index.md")
@@ -614,7 +658,10 @@ def initialize_baseline(repo_path: Path, dry_run: bool, overwrite: bool) -> int:
     if scan.optional_domains:
         print(f"- optional domains: {', '.join(scan.optional_domains)}")
         for domain in scan.optional_domains:
-            print(f"  - {domain}: {scan.optional_evidence.get(domain, 'dir+responsibility')}")
+            print(
+                f"  - {domain}: {scan.optional_evidence.get(domain, 'dir+responsibility')}, "
+                f"applyTo={scan.optional_apply_to.get(domain, f'{domain}/**')}"
+            )
     else:
         print("- optional domains: none (core/ui/tests only)")
 
