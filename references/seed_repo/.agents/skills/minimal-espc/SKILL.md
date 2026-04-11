@@ -1,0 +1,119 @@
+---
+name: minimal-espc
+description: "Required spec-first workflow skill for this repository. Trigger before working in specs/, before behavior-changing code, when switching stage, or when spec drift/uncertainty appears. Loads the Minimal ESPC entry path, stage flow, and spec-code sync rules. Do not skip when execution depends on spec interpretation."
+---
+
+# Minimal ESPC
+
+## Goal
+
+Provide the required Minimal ESPC working protocol for this repository
+without creating a parallel source of truth.
+
+Use this skill to establish:
+
+- the spec entry path
+- the current execution stage
+- the spec-code synchronization rule
+
+## Core Principles
+
+1. think in **first principles** and reject heuristics and unverified assumptions
+2. apply **Occam’s Razor** — no unnecessary entities, no backward compatibility
+3. continuously challenge all inputs through **Socratic questioning**
+   until they align with Goal, Facts, and Acceptance
+
+## When to Use
+
+Use this skill when:
+
+- starting work in `specs/`
+- changing behavior or acceptance-relevant code
+- switching between exploration, specification, planning, coding, or review
+- spec drift, ambiguity, or uncertainty appears
+- complex, high-drift tasks may require conditional delegated supervision
+
+Do not proceed as code-ready if this skill has not been applied.
+
+## Procedure
+
+1. Confirm governing sources.
+   - Read `AGENTS.md`
+   - Read repository constraints from `.github/copilot-instructions.md`
+   - Route domain instructions by `applyTo` before editing or testing:
+     - Scan `applyTo` frontmatter from `.github/instructions/*.instructions.md`
+     - Apply all matched instruction files (multi-match is allowed)
+     - Example routing by domain, not fixed file names:
+       - `.github/instructions/core.instructions.md`  : `applyTo: "src/**/*.py"`
+       - `.github/instructions/ui.instructions.md`    : `applyTo: "src/**/*.qml"`
+       - `.github/instructions/tests.instructions.md` : `applyTo: "tests/**"`
+
+2. Resolve spec entry path.
+   - Follow [spec-entry](./references/spec-entry.md) details
+   - Classify the current context as exactly one of: feature, contract, knowledge, or missing
+   - If spec context is to edit, do not forget read the matching domain index
+   - If spec context is missing or unclear, do not treat spec stage as ready
+
+3. Resolve execution stage.
+   - Follow [execution-flow](./references/execution-flow.md) details
+   - Determine the current stage and exit condition
+   - If facts are insufficient, stay in exploration
+   - If plan or acceptance is missing, do not treat code stage as ready
+
+4. Enforce spec-code sync.
+   - Keep spec and code aligned
+   - Update spec before continuing when facts invalidate the current decision
+   - Do not continue through drift
+
+5. Apply Delegated TDD Supervision conditionally.
+   - Trigger only when both are true:
+     - `cross-layer` change: at least two layers among spec or code
+     - `contract/Acceptance` semantics are changing
+   - Follow [delegated-mode](./references/delegated-tdd-supervision.md) details
+   - Otherwise keep the default single-agent path
+
+## Output Contract
+
+Return a compact status block:
+
+- `source`: confirmed / missing
+- `category`: feature / contract / knowledge / missing
+- `stage`: named / missing
+- `sync-risk`: yes / no
+- `delegation`: on / off
+
+For `code` and `review` stage reporting, use the same unified gate block:
+
+- `semantic-gate`: pass / fail
+- `pollution-gate`: pass / fail
+- `static-gate`: pass / fail
+- `atomic-submit`: pass / fail
+- `cleanup`: pass / fail
+
+If no instruction file matches current edit/test targets by `applyTo`,
+set `sync-risk: yes` warn and continue.
+
+If `delegation` is `on`,
+state additional compact status block for each subagent:
+
+- `workspace`: shared / isolated-worktree
+- `semantic-gate`: pass / fail
+- `pollution-gate`: pass / fail
+- `static-gate`: pass / fail
+- `atomic-submit`: pass / fail
+- `cleanup`: pass / fail
+
+If any field is `missing` or `yes`,
+do not proceed as if code stage is ready.
+If `delegation` is `on`,
+code-ready is true only when all above are `pass`.
+
+## Constraints
+
+- Do not create a parallel workflow note
+- Do not reinterpret repository constraints
+- Do not skip domain index resolution
+- Keep normal-use output compact
+- Do not trigger delegated mode by default
+- When delegated mode is on,
+  keep final delivery as one supervising-agent atomic commit

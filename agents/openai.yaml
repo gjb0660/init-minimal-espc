@@ -1,0 +1,4 @@
+interface:
+  display_name: "Init Minimal ESPC"
+  short_description: "Bootstrap minimal ESPC baseline"
+  default_prompt: "Use $init-minimal-espc to initialize a minimal ESPC baseline for this repository."
