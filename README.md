@@ -91,6 +91,9 @@ Bootstrap a repository with a minimal ESPC baseline.
 
     > 这是一个收敛性的技能，可以不用 `plan mode` 计划模式
 
+3. 是 `decision-import` 技能 Agent 可以：
+    - 从暂存区的修改中提取决策证据，更新 spec
+
 > 显式调用 skill 通常会优于自动触发；
 > 借助 prompts/agents.md/skills 三者的协同作用，有助于 Agent 集中注意力。
 
