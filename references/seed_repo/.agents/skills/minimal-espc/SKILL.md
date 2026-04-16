@@ -44,9 +44,9 @@ Do not proceed as code-ready if this skill has not been applied.
      - Scan `applyTo` frontmatter from `.github/instructions/*.instructions.md`
      - Apply all matched instruction files (multi-match is allowed)
      - Example routing by domain, not fixed file names:
-       - `.github/instructions/core.instructions.md`  : `applyTo: "src/**/*.py"`
-       - `.github/instructions/ui.instructions.md`    : `applyTo: "src/**/*.qml"`
-       - `.github/instructions/tests.instructions.md` : `applyTo: "tests/**"`
+         - `.github/instructions/core.instructions.md`  : `applyTo: "src/**/*.py"`
+         - `.github/instructions/ui.instructions.md`    : `applyTo: "src/**/*.qml"`
+         - `.github/instructions/tests.instructions.md` : `applyTo: "tests/**"`
 
 2. Resolve spec entry path.
    - Follow [spec-entry](./references/spec-entry.md) details

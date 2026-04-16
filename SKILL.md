@@ -1,6 +1,6 @@
 ---
 name: init-minimal-espc
-description: Initialize a repository with a minimal ESPC baseline. Use when bootstrapping a fresh project or normalizing governance by asking 3 Socratic questions (goal, scope, acceptance), generating AGENTS/.github/specs skeleton, creating instruction templates with inline research TODO prompts, and seeding minimal-espc + converge-commit.
+description: Initialize a repository with a minimal ESPC baseline. Use when bootstrapping a fresh project or normalizing governance by asking 3 Socratic questions (goal, scope, acceptance), copying `references/seed_repo/**` verbatim, and generating instruction templates with inline research TODO prompts.
 ---
 
 # Init Minimal ESPC
@@ -14,8 +14,8 @@ Initialize a repository to an executable minimal ESPC baseline while preventing 
 Before generation, ask exactly these 3 questions and capture explicit answers:
 
 1. Goal: what concrete outcome must initialization unlock immediately?
-2. Scope: which repository path is targeted, and should overwrite be enabled?
-3. Acceptance: which baseline checks must pass after initialization?
+2. Scope: where is the target repository path, and should overwrite be enabled?
+3. Acceptance: what baseline checks must pass after initialization?
 
 Do not run write mode until the answers are unambiguous.
 
@@ -27,7 +27,6 @@ Do not run write mode until the answers are unambiguous.
 python scripts/init_minimal_espc_baseline.py <repo_path> --dry-run
 ```
 
-1. Review generated actions, mandatory instructions (`core/ui/tests`), and optional-domain decisions.
 1. Run write mode:
 
 ```bash
@@ -41,19 +40,18 @@ python scripts/init_minimal_espc_baseline.py <repo_path> [--overwrite]
 
 The script generates:
 
-- `AGENTS.md`
-- `.github/copilot-instructions.md` (SoT fixed to `specs/knowledge/architecture.md`)
+- all files under `references/seed_repo/**` (copy baseline first, then overlay rendered outputs below)
+- `.github/copilot-instructions.md` rendered from placeholder template
 - mandatory instructions:
   - `.github/instructions/core.instructions.md`
   - `.github/instructions/ui.instructions.md`
   - `.github/instructions/tests.instructions.md`
+  - rendered from seed templates under `references/seed_repo/.github/instructions/`
+  - each section uses required baseline + placeholder + inline question-form TODO prompts
 - optional instructions (max 5): `build/deploy/perf/security/api/ops` using dual evidence gate
-- `specs/index.md`
-- `specs/features/index.md`
-- `specs/contracts/index.md`
-- `specs/knowledge/index.md`
-- `.agents/skills/minimal-espc/**`
-- `.agents/skills/converge-commit/**`
+  - rendered from `references/templates/optional.instructions.md`
+  - each section uses required baseline + placeholder + inline question-form TODO prompts
+  - `Types and Linting` appears only when executable/static checks are detected
 
 The script does not generate knowledge content files. Agent research is required.
 
@@ -72,8 +70,12 @@ The script does not generate knowledge content files. Agent research is required
 ## Constraints
 
 - Keep first-principles and Occam boundaries.
-- Keep repository-specific rewrites minimal (paths and checks only).
-- Keep seeded skills unchanged when copied.
+- Copy content under `references/seed_repo/` verbatim.
+- Do not add extra confirmation text for seeded files in script or SKILL.
+- Keep script-generated rules minimal and generic by default.
+- Keep optional-domain instructions template-driven (`references/templates/optional.instructions.md`).
+- Keep TODO density section-graded: `Source of Truth` high, other sections low.
+- Keep each generated instruction within a 60-line cognitive budget.
 - Do not auto-write knowledge conclusions from script heuristics.
 
 ## Resources

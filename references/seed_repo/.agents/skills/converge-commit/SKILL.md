@@ -72,7 +72,7 @@ when all gates are `pass`.
 1. first-principles review and smell classification (see refactoring reference)
 2. Occam reduction to remove dead or redundant entities
 3. mandatory smell closure: safe fixes now, unsafe or cross-boundary to risk fields
-4. quick gate: `pyright`, `ruff`, `qmllint` on mandatory range
+4. quick gate: repository local linters on mandatory range
 5. full gate: repository required checks before commit
 6. atomic commit: one valid subject, commit exactly once
 

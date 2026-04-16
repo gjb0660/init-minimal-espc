@@ -12,10 +12,10 @@ Read `AGENTS.md` for workflow and execution rules.
 
 ## Repository Layout
 
-- Python code MUST stay under `src/temporal/**`
-- QML code MUST stay under `src/temporal/qml/**`
-- Tests MUST stay under `tests/**`
-- Python SHOULD NOT include `__init__.py` in namespace packages
+- Core code MUST stay under `{{CORE_APPLY_TO}}`
+- UI code MUST stay under `{{UI_APPLY_TO}}`
+- Tests MUST stay under `{{TESTS_APPLY_TO}}`
+{{PYTHON_NAMESPACE_RULE}}
 - Docs SHOULD be human-readable export from specs.
 
 ## Writing Rules
@@ -33,13 +33,9 @@ Read `AGENTS.md` for workflow and execution rules.
 
 Before commit, MUST pass:
 
-- `uv run pyright --project pyproject.toml`
-- `uv run ruff check src tests`
-- `uv run ruff format src tests`
-
-- `uv run pyside6-qmllint <qml-files>`
-- `uv run pyside6-qmlformat -i <qml-files>`
+{{PYTHON_CHECKS}}
+{{UI_CHECKS}}
 
 - `npx markdownlint **/*.md .github/**/*.md`
 
-- `uv run python -m unittest discover -s tests -p "test_*.py" -v`
+{{TEST_CHECKS}}

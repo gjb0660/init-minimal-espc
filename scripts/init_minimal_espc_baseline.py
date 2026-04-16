@@ -54,6 +54,12 @@ UI_TOKENS = {"ui", "frontend", "front-end", "client", "web", "views", "component
 TEST_TOKENS = {"test", "tests", "testing", "spec", "specs"}
 
 OPTIONAL_DOMAIN_ORDER = ["build", "deploy", "perf", "security", "api", "ops"]
+MANDATORY_DOMAIN_TEMPLATES = {
+    "core": "core.instructions.md",
+    "ui": "ui.instructions.md",
+    "tests": "tests.instructions.md",
+}
+OPTIONAL_INSTRUCTION_TEMPLATE = Path("references") / "templates" / "optional.instructions.md"
 
 OPTIONAL_DOMAIN_RULES: dict[str, dict[str, list[str]]] = {
     "build": {
@@ -127,8 +133,8 @@ class Writer:
         self.overwrite = overwrite
         self.actions: list[str] = []
 
-    def write_text(self, target: Path, content: str) -> None:
-        if target.exists() and not self.overwrite:
+    def write_text(self, target: Path, content: str, force: bool = False) -> None:
+        if target.exists() and not (self.overwrite or force):
             self.actions.append(f"SKIP  {target} (exists)")
             return
         self.actions.append(f"WRITE {target}")
@@ -390,49 +396,52 @@ def _collapse_blank_lines(text: str) -> str:
     return out
 
 
-def rewrite_copilot_instructions(template: str, scan: RepoScan) -> str:
-    result: list[str] = []
-    for line in template.splitlines():
-        stripped = line.strip()
-        if stripped.startswith("- Python code MUST stay under"):
-            result.append(f"- Core code MUST stay under `{scan.core_apply_to}`")
-            continue
-        if stripped.startswith("- QML code MUST stay under"):
-            result.append(f"- UI code MUST stay under `{scan.ui_apply_to}`")
-            continue
-        if stripped.startswith("- Tests MUST stay under"):
-            result.append(f"- Tests MUST stay under `{scan.tests_apply_to}`")
-            continue
-        if stripped.startswith("- Python SHOULD NOT include `__init__.py`"):
-            if scan.has_python:
-                result.append(line)
-            continue
-        if stripped.startswith("- `uv run pyright --project pyproject.toml`"):
-            if scan.has_python:
-                result.append(line)
-            continue
-        if stripped.startswith("- `uv run ruff check src tests`"):
-            if scan.has_python:
-                result.append(line)
-            continue
-        if stripped.startswith("- `uv run ruff format src tests`"):
-            if scan.has_python:
-                result.append(line)
-            continue
-        if stripped.startswith("- `uv run pyside6-qmllint <qml-files>`"):
-            if scan.has_qml:
-                result.append(line)
-            continue
-        if stripped.startswith("- `uv run pyside6-qmlformat -i <qml-files>`"):
-            if scan.has_qml:
-                result.append(line)
-            continue
-        if stripped.startswith("- `uv run python -m unittest discover -s tests -p \"test_*.py\" -v`"):
-            if scan.has_python:
-                result.append(line)
-            continue
-        result.append(line)
-    return _collapse_blank_lines("\n".join(result).rstrip() + "\n")
+def render_copilot_instructions_from_template(seed_root: Path, scan: RepoScan) -> str:
+    template_path = seed_root / ".github" / "copilot-instructions.md"
+    if not template_path.exists():
+        raise FileNotFoundError(f"Copilot template missing: {template_path}")
+
+    python_checks = ""
+    if scan.has_python:
+        python_checks = "\n".join(
+            [
+                "- `uv run pyright --project pyproject.toml`",
+                "- `uv run ruff check src tests`",
+                "- `uv run ruff format src tests`",
+            ]
+        )
+
+    ui_checks = ""
+    if scan.has_qml:
+        ui_checks = "\n".join(
+            [
+                "- `uv run pyside6-qmllint <qml-files>`",
+                "- `uv run pyside6-qmlformat -i <qml-files>`",
+            ]
+        )
+
+    test_checks = ""
+    if scan.has_python:
+        test_checks = '- `uv run python -m unittest discover -s tests -p "test_*.py" -v`'
+
+    python_namespace_rule = ""
+    if scan.has_python:
+        python_namespace_rule = "- Python SHOULD NOT include `__init__.py` in namespace packages"
+
+    replacements = {
+        "{{CORE_APPLY_TO}}": scan.core_apply_to,
+        "{{UI_APPLY_TO}}": scan.ui_apply_to,
+        "{{TESTS_APPLY_TO}}": scan.tests_apply_to,
+        "{{PYTHON_NAMESPACE_RULE}}": python_namespace_rule,
+        "{{PYTHON_CHECKS}}": python_checks,
+        "{{UI_CHECKS}}": ui_checks,
+        "{{TEST_CHECKS}}": test_checks,
+    }
+
+    content = template_path.read_text(encoding="utf-8")
+    for key, value in replacements.items():
+        content = content.replace(key, value)
+    return _collapse_blank_lines(content.rstrip() + "\n")
 
 
 def _source_of_truth(domain: str) -> str:
@@ -451,14 +460,40 @@ def _relative_link(target: str) -> str:
     return f"../../{target}"
 
 
-def _todo_lines(domain: str, target: str) -> str:
+def _source_todo_lines(domain: str, target: str) -> str:
     return "\n".join(
         [
-            f"<!-- TODO(agent-research): Goal: create or refine `{target}`. -->",
-            f"<!-- TODO(agent-research): Keep it reusable for AGENTS in `{domain}` scope. -->",
-            "<!-- TODO(agent-research): Gather evidence from source, configs, tests, and stable contracts. -->",
-            "<!-- TODO(agent-research): Keep out Plan/Progress/Todo execution state. -->",
-            "<!-- TODO(agent-research): Remove this TODO block at initialization closeout. -->",
+            f"<!-- TODO(agent-research,source,Q1): What stable boundaries should `{target}` define for `{domain}`? -->",
+            "<!-- TODO(agent-research,source,Q2): How do files/tests/configs provide direct evidence for this source? -->",
+            "<!-- TODO(agent-research,source,Q3): When evidence is incomplete, what assumptions must stay hypotheses? -->",
+            "<!-- TODO(agent-research,cleanup): After the knowledge/contract doc is complete, can this TODO block be removed? -->",
+        ]
+    )
+
+
+def _local_rules_todo_lines(domain: str) -> str:
+    return "\n".join(
+        [
+            f"<!-- TODO(agent-research,local-rules,Q1): What `{domain}` local rules are truly stable across features? -->",
+            "<!-- TODO(agent-research,local-rules,cleanup): After rules are confirmed, can this TODO block be removed? -->",
+        ]
+    )
+
+
+def _types_todo_lines(domain: str) -> str:
+    return "\n".join(
+        [
+            f"<!-- TODO(agent-research,types-linting,Q1): How should AGENTS fix lint/type failures by root cause in `{domain}` before rerunning checks? -->",
+            "<!-- TODO(agent-research,types-linting,cleanup): After policy is documented, can this TODO block be removed? -->",
+        ]
+    )
+
+
+def _checks_todo_lines(domain: str) -> str:
+    return "\n".join(
+        [
+            f"<!-- TODO(agent-research,local-checks,Q1): When should a check failure block commit for `{domain}`? -->",
+            "<!-- TODO(agent-research,local-checks,cleanup): After check policy is documented, can this TODO block be removed? -->",
         ]
     )
 
@@ -495,27 +530,14 @@ def _instruction_scope(domain: str) -> str:
 
 def _instruction_local_rules(domain: str) -> list[str]:
     if domain == "core":
-        return [
-            "Keep runtime behavior configurable.",
-            "Avoid hardcoding production environment details.",
-            "Preserve separation between execution logic and presentation logic.",
-        ]
+        return ["SHOULD keep runtime behavior configurable where applicable."]
     if domain == "ui":
-        return [
-            "Keep UI logic presentation-focused.",
-            "Map UI components to ui-specific contracts under `specs/contracts/ui/`.",
-            "Do not bypass defined interaction boundaries.",
-        ]
+        return ["SHOULD map UI changes to ui-specific contracts."]
     if domain == "tests":
-        return [
-            "Keep tests deterministic and isolated.",
-            "Prefer behavior-first assertions derived from Acceptance criteria.",
-            "Avoid test helpers that hide production behavior.",
-        ]
+        return ["SHOULD derive assertions directly from Acceptance criteria."]
     return [
-        f"Keep {domain} rules evidence-driven and minimal.",
-        "Prefer stable constraints over ad-hoc conventions.",
-        "Keep checks aligned with repository-level constraints.",
+        "SHOULD keep rules minimal and evidence-driven.",
+        "SHOULD align domain rules with repository-level constraints.",
     ]
 
 
@@ -538,50 +560,202 @@ def _instruction_checks(domain: str, scan: RepoScan) -> list[str]:
     return ["Use repository-level checks defined in `.github/copilot-instructions.md`."]
 
 
-def render_instruction(domain: str, apply_to: str, scan: RepoScan) -> str:
-    target = _source_of_truth(domain)
-    rel_link = _relative_link(target)
-
-    local_rules = "\n".join(f"- {rule}" for rule in _instruction_local_rules(domain))
-    checks = "\n".join(f"- {check}" for check in _instruction_checks(domain, scan))
-
-    body = f"""---
-description: \"{_instruction_description(domain)}\"
-applyTo: \"{apply_to}\"
----
-
-# {_instruction_title(domain)}
-
-## Scope
-
-{_instruction_scope(domain)}
-
-## Source of Truth
-
-- [{target}]({rel_link})
-{_todo_lines(domain, target)}
-
-## Local Rules
-
-{local_rules}
-
-## Local Checks
-
-{checks}
-"""
+def _instruction_types_and_linting(domain: str, scan: RepoScan) -> list[str]:
+    if domain == "core":
+        if scan.has_python:
+            return [
+                "SHOULD keep `pyright` at 0 errors, 0 warnings, 0 infos.",
+                "SHOULD fix findings from root cause; do not suppress local code issues.",
+                "SHOULD NOT add `# pyright: ignore[...]`, `# type: ignore`, or `# noqa` to bypass findings.",
+                "SHOULD avoid `Any`; prefer concrete types, `Protocol`, and minimal typed surfaces.",
+                "MUST NOT relax global settings in `pyproject.toml` as a workaround.",
+            ]
+        return ["Use repository-level typing/linting policy in `.github/copilot-instructions.md`."]
 
     if domain == "ui":
-        ui_note = "A UI file SHOULD be mapped to its ui-specific contract (CamelCase -> kebab-case).\n"
-        body = body.replace("## Local Rules\n", f"{ui_note}\n## Local Rules\n")
+        if scan.has_qml:
+            return [
+                "SHOULD keep `pyside6-qmllint` at 0 errors, 0 warnings.",
+                "SHOULD fix findings from root-cause; do not suppress findings.",
+                "SHOULD NOT add `// qmllint disable ...` to bypass findings.",
+            ]
+        return ["Use repository-level typing/linting policy in `.github/copilot-instructions.md`."]
 
-    if domain not in {"core", "ui", "tests"}:
-        extension_note = (
-            "Optional contracts extension is allowed only when stable constraints are confirmed.\n"
-            "Never reference feature specs as Source of Truth.\n"
+    return [
+        "SHOULD fix lint/type failures at root cause before retry.",
+        "SHOULD NOT bypass failures with suppress/ignore pragmas.",
+    ]
+
+
+def _optional_domain_checks(scan: RepoScan) -> list[str]:
+    checks: list[str] = []
+    if scan.has_python:
+        checks.extend(
+            [
+                "`uv run pyright --project pyproject.toml`",
+                "`uv run ruff check`",
+            ]
         )
-        body = body.replace("## Local Rules\n", f"{extension_note}\n## Local Rules\n")
+    if scan.has_qml:
+        checks.extend(
+            [
+                "`uv run pyside6-qmllint`",
+            ]
+        )
+    return checks
 
-    return body
+
+def _optional_domain_types_and_linting(scan: RepoScan) -> list[str]:
+    if not _optional_domain_checks(scan):
+        return []
+    lines = [
+        "SHOULD fix lint/type failures at root cause before retry.",
+        "SHOULD NOT bypass failures with suppress/ignore pragmas.",
+    ]
+    if scan.has_python:
+        lines.append("SHOULD avoid blanket `# type: ignore` or `# noqa` in domain changes.")
+    if scan.has_qml:
+        lines.append("SHOULD avoid `// qmllint disable ...` suppressions in domain changes.")
+    return lines
+
+
+def _bullet_lines(items: list[str]) -> str:
+    return "\n".join(f"- {item}" for item in items)
+
+
+def _render_template(content: str, replacements: dict[str, str]) -> str:
+    rendered = content
+    for key, value in replacements.items():
+        rendered = rendered.replace(key, value)
+    return _collapse_blank_lines(rendered.rstrip() + "\n")
+
+
+def _compress_todo_lines(lines: list[str]) -> list[str]:
+    compressed: list[str] = []
+    seen_groups: set[str] = set()
+    for line in lines:
+        stripped = line.strip()
+        if "<!-- TODO(" not in stripped:
+            compressed.append(line)
+            continue
+        if "cleanup" in stripped:
+            compressed.append(line)
+            continue
+        marker = "agent-research,"
+        idx = stripped.find(marker)
+        if idx == -1:
+            compressed.append(line)
+            continue
+        rest = stripped[idx + len(marker) :]
+        group = rest.split(",", 1)[0]
+        if group in seen_groups:
+            continue
+        seen_groups.add(group)
+        compressed.append(line)
+    return compressed
+
+
+def _drop_noncritical_description(lines: list[str]) -> list[str]:
+    if len(lines) <= 60:
+        return lines
+    out: list[str] = []
+    for line in lines:
+        stripped = line.strip()
+        if not stripped:
+            out.append(line)
+            continue
+        if stripped.startswith(("#", "-", "<!--")):
+            out.append(line)
+            continue
+        # Preserve only heading/bullet/todo/link-driven lines when shrinking.
+        continue
+    return out
+
+
+def _enforce_instruction_line_cap(text: str, cap: int = 60) -> str:
+    lines = text.rstrip("\n").splitlines()
+    if len(lines) <= cap:
+        return _collapse_blank_lines(text.rstrip() + "\n")
+
+    lines = _compress_todo_lines(lines)
+    if len(lines) <= cap:
+        return _collapse_blank_lines("\n".join(lines).rstrip() + "\n")
+
+    lines = _drop_noncritical_description(lines)
+    if len(lines) <= cap:
+        return _collapse_blank_lines("\n".join(lines).rstrip() + "\n")
+
+    # Final fallback: trim non-cleanup TODOs from bottom-up.
+    idx = len(lines) - 1
+    while len(lines) > cap and idx >= 0:
+        stripped = lines[idx].strip()
+        if "<!-- TODO(" in stripped and "cleanup" not in stripped:
+            del lines[idx]
+        idx -= 1
+    return _collapse_blank_lines("\n".join(lines).rstrip() + "\n")
+
+
+def render_mandatory_instruction_from_template(
+    seed_root: Path, domain: str, apply_to: str, scan: RepoScan
+) -> str:
+    template_name = MANDATORY_DOMAIN_TEMPLATES[domain]
+    template_path = seed_root / ".github" / "instructions" / template_name
+    if not template_path.exists():
+        raise FileNotFoundError(f"Mandatory instruction template missing: {template_path}")
+
+    content = template_path.read_text(encoding="utf-8")
+    rendered = _render_template(
+        content,
+        {
+            "{{APPLY_TO}}": apply_to,
+            "{{LOCAL_RULES}}": _bullet_lines(_instruction_local_rules(domain)),
+            "{{TYPES_AND_LINTING}}": _bullet_lines(_instruction_types_and_linting(domain, scan)),
+            "{{LOCAL_CHECKS}}": _bullet_lines(_instruction_checks(domain, scan)),
+        },
+    )
+    return _enforce_instruction_line_cap(rendered)
+
+
+def render_optional_instruction_from_template(
+    skill_root: Path, domain: str, apply_to: str, scan: RepoScan
+) -> str:
+    template_path = skill_root / OPTIONAL_INSTRUCTION_TEMPLATE
+    if not template_path.exists():
+        raise FileNotFoundError(f"Optional instruction template missing: {template_path}")
+
+    target = _source_of_truth(domain)
+    rel_link = _relative_link(target)
+    content = template_path.read_text(encoding="utf-8")
+    optional_checks = _optional_domain_checks(scan)
+    local_checks = optional_checks or _instruction_checks(domain, scan)
+    optional_types = _optional_domain_types_and_linting(scan)
+    types_section = ""
+    if optional_types:
+        types_section = (
+            "## Types and Linting\n\n"
+            "- MUST follow repository-level typing/linting policy.\n"
+            f"{_bullet_lines(optional_types)}\n"
+            f"{_types_todo_lines(domain)}\n"
+        )
+
+    rendered = _render_template(
+        content,
+        {
+            "{{DESCRIPTION}}": _instruction_description(domain),
+            "{{APPLY_TO}}": apply_to,
+            "{{TITLE}}": _instruction_title(domain),
+            "{{SCOPE}}": _instruction_scope(domain),
+            "{{SOURCE_OF_TRUTH_PATH}}": target,
+            "{{SOURCE_OF_TRUTH_LINK}}": rel_link,
+            "{{SOURCE_TODO}}": _source_todo_lines(domain, target),
+            "{{LOCAL_RULES}}": _bullet_lines(_instruction_local_rules(domain)),
+            "{{LOCAL_RULES_TODO}}": _local_rules_todo_lines(domain),
+            "{{TYPES_AND_LINTING_SECTION}}": types_section,
+            "{{LOCAL_CHECKS}}": _bullet_lines(local_checks),
+            "{{LOCAL_CHECKS_TODO}}": _checks_todo_lines(domain),
+        },
+    )
+    return _enforce_instruction_line_cap(rendered)
 
 
 def initialize_baseline(repo_path: Path, dry_run: bool, overwrite: bool) -> int:
@@ -594,57 +768,45 @@ def initialize_baseline(repo_path: Path, dry_run: bool, overwrite: bool) -> int:
     scan = scan_repo(repo_path)
     writer = Writer(dry_run=dry_run, overwrite=overwrite)
 
-    writer.copy_file(seed_root / "AGENTS.md", repo_path / "AGENTS.md")
-
-    template_copilot = (seed_root / ".github" / "copilot-instructions.md").read_text(
-        encoding="utf-8"
-    )
-    writer.write_text(
-        repo_path / ".github" / "copilot-instructions.md",
-        rewrite_copilot_instructions(template_copilot, scan),
-    )
-
-    writer.write_text(
-        repo_path / ".github" / "instructions" / "core.instructions.md",
-        render_instruction("core", scan.core_apply_to, scan),
-    )
-    writer.write_text(
-        repo_path / ".github" / "instructions" / "ui.instructions.md",
-        render_instruction("ui", scan.ui_apply_to, scan),
-    )
-    writer.write_text(
-        repo_path / ".github" / "instructions" / "tests.instructions.md",
-        render_instruction("tests", scan.tests_apply_to, scan),
-    )
+    generated: list[tuple[Path, str]] = [
+        (
+            repo_path / ".github" / "copilot-instructions.md",
+            render_copilot_instructions_from_template(seed_root, scan),
+        ),
+        (
+            repo_path / ".github" / "instructions" / "core.instructions.md",
+            render_mandatory_instruction_from_template(seed_root, "core", scan.core_apply_to, scan),
+        ),
+        (
+            repo_path / ".github" / "instructions" / "ui.instructions.md",
+            render_mandatory_instruction_from_template(seed_root, "ui", scan.ui_apply_to, scan),
+        ),
+        (
+            repo_path / ".github" / "instructions" / "tests.instructions.md",
+            render_mandatory_instruction_from_template(seed_root, "tests", scan.tests_apply_to, scan),
+        ),
+    ]
 
     for domain in scan.optional_domains:
-        writer.write_text(
-            repo_path / ".github" / "instructions" / f"{domain}.instructions.md",
-            render_instruction(domain, scan.optional_apply_to.get(domain, f"{domain}/**"), scan),
+        generated.append(
+            (
+                repo_path / ".github" / "instructions" / f"{domain}.instructions.md",
+                render_optional_instruction_from_template(
+                    skill_root,
+                    domain,
+                    scan.optional_apply_to.get(domain, f"{domain}/**"),
+                    scan,
+                ),
+            )
         )
 
-    writer.copy_file(seed_root / "specs" / "index.md", repo_path / "specs" / "index.md")
-    writer.copy_file(
-        seed_root / "specs" / "features" / "index.md",
-        repo_path / "specs" / "features" / "index.md",
-    )
-    writer.copy_file(
-        seed_root / "specs" / "contracts" / "index.md",
-        repo_path / "specs" / "contracts" / "index.md",
-    )
-    writer.copy_file(
-        seed_root / "specs" / "knowledge" / "index.md",
-        repo_path / "specs" / "knowledge" / "index.md",
-    )
+    preexisting: dict[Path, bool] = {target: target.exists() for target, _ in generated}
 
-    writer.copy_tree(
-        seed_root / ".agents" / "skills" / "minimal-espc",
-        repo_path / ".agents" / "skills" / "minimal-espc",
-    )
-    writer.copy_tree(
-        seed_root / ".agents" / "skills" / "converge-commit",
-        repo_path / ".agents" / "skills" / "converge-commit",
-    )
+    writer.copy_tree(seed_root, repo_path)
+
+    for target, content in generated:
+        if overwrite or not preexisting[target]:
+            writer.write_text(target, content, force=True)
 
     mode = "DRY-RUN" if dry_run else "WRITE"
     print(f"[{mode}] repo={repo_path}")
