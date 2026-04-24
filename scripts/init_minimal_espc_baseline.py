@@ -4,7 +4,7 @@ import argparse
 import os
 import shutil
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 
 SKIP_DIRS = {
@@ -401,9 +401,9 @@ def render_copilot_instructions_from_template(seed_root: Path, scan: RepoScan) -
     if not template_path.exists():
         raise FileNotFoundError(f"Copilot template missing: {template_path}")
 
-    python_checks = ""
+    core_checks = ""
     if scan.has_python:
-        python_checks = "\n".join(
+        core_checks = "\n".join(
             [
                 "- `uv run pyright --project pyproject.toml`",
                 "- `uv run ruff check src tests`",
@@ -420,22 +420,22 @@ def render_copilot_instructions_from_template(seed_root: Path, scan: RepoScan) -
             ]
         )
 
-    test_checks = ""
+    tests_checks = ""
     if scan.has_python:
-        test_checks = '- `uv run python -m unittest discover -s tests -p "test_*.py" -v`'
+        tests_checks = '- `uv run python -m unittest discover -s tests -p "test_*.py" -v`'
 
-    python_namespace_rule = ""
+    core_namespace_rule = ""
     if scan.has_python:
-        python_namespace_rule = "- Python SHOULD NOT include `__init__.py` in namespace packages"
+        core_namespace_rule = "- Python SHOULD NOT include `__init__.py` in namespace packages"
 
     replacements = {
         "{{CORE_APPLY_TO}}": scan.core_apply_to,
         "{{UI_APPLY_TO}}": scan.ui_apply_to,
         "{{TESTS_APPLY_TO}}": scan.tests_apply_to,
-        "{{PYTHON_NAMESPACE_RULE}}": python_namespace_rule,
-        "{{PYTHON_CHECKS}}": python_checks,
+        "{{CORE_NAMESPACE_RULE}}": core_namespace_rule,
+        "{{CORE_CHECKS}}": core_checks,
         "{{UI_CHECKS}}": ui_checks,
-        "{{TEST_CHECKS}}": test_checks,
+        "{{TESTS_CHECKS}}": tests_checks,
     }
 
     content = template_path.read_text(encoding="utf-8")
@@ -587,16 +587,36 @@ def _instruction_types_and_linting(domain: str, scan: RepoScan) -> list[str]:
     ]
 
 
-def _optional_domain_checks(scan: RepoScan) -> list[str]:
+def _paths_for_apply_to(rel_files: list[Path], apply_to: str) -> list[Path]:
+    patterns = [pattern.strip() for pattern in apply_to.split(",") if pattern.strip()]
+    if not patterns:
+        return []
+    matched: list[Path] = []
+    for rel in rel_files:
+        rel_path = PurePosixPath(rel.as_posix())
+        if any(rel_path.match(pattern) for pattern in patterns):
+            matched.append(rel)
+    return matched
+
+
+def _optional_domain_language_presence(scan: RepoScan, apply_to: str) -> tuple[bool, bool]:
+    domain_files = _paths_for_apply_to(scan.rel_files, apply_to)
+    has_python = any(path.suffix.lower() == ".py" for path in domain_files)
+    has_qml = any(path.suffix.lower() == ".qml" for path in domain_files)
+    return has_python, has_qml
+
+
+def _optional_domain_checks(scan: RepoScan, apply_to: str) -> list[str]:
+    has_python, has_qml = _optional_domain_language_presence(scan, apply_to)
     checks: list[str] = []
-    if scan.has_python:
+    if has_python:
         checks.extend(
             [
                 "`uv run pyright --project pyproject.toml`",
                 "`uv run ruff check`",
             ]
         )
-    if scan.has_qml:
+    if has_qml:
         checks.extend(
             [
                 "`uv run pyside6-qmllint`",
@@ -605,16 +625,17 @@ def _optional_domain_checks(scan: RepoScan) -> list[str]:
     return checks
 
 
-def _optional_domain_types_and_linting(scan: RepoScan) -> list[str]:
-    if not _optional_domain_checks(scan):
+def _optional_domain_types_and_linting(scan: RepoScan, apply_to: str) -> list[str]:
+    has_python, has_qml = _optional_domain_language_presence(scan, apply_to)
+    if not (has_python or has_qml):
         return []
     lines = [
         "SHOULD fix lint/type failures at root cause before retry.",
         "SHOULD NOT bypass failures with suppress/ignore pragmas.",
     ]
-    if scan.has_python:
+    if has_python:
         lines.append("SHOULD avoid blanket `# type: ignore` or `# noqa` in domain changes.")
-    if scan.has_qml:
+    if has_qml:
         lines.append("SHOULD avoid `// qmllint disable ...` suppressions in domain changes.")
     return lines
 
@@ -628,71 +649,6 @@ def _render_template(content: str, replacements: dict[str, str]) -> str:
     for key, value in replacements.items():
         rendered = rendered.replace(key, value)
     return _collapse_blank_lines(rendered.rstrip() + "\n")
-
-
-def _compress_todo_lines(lines: list[str]) -> list[str]:
-    compressed: list[str] = []
-    seen_groups: set[str] = set()
-    for line in lines:
-        stripped = line.strip()
-        if "<!-- TODO(" not in stripped:
-            compressed.append(line)
-            continue
-        if "cleanup" in stripped:
-            compressed.append(line)
-            continue
-        marker = "agent-research,"
-        idx = stripped.find(marker)
-        if idx == -1:
-            compressed.append(line)
-            continue
-        rest = stripped[idx + len(marker) :]
-        group = rest.split(",", 1)[0]
-        if group in seen_groups:
-            continue
-        seen_groups.add(group)
-        compressed.append(line)
-    return compressed
-
-
-def _drop_noncritical_description(lines: list[str]) -> list[str]:
-    if len(lines) <= 60:
-        return lines
-    out: list[str] = []
-    for line in lines:
-        stripped = line.strip()
-        if not stripped:
-            out.append(line)
-            continue
-        if stripped.startswith(("#", "-", "<!--")):
-            out.append(line)
-            continue
-        # Preserve only heading/bullet/todo/link-driven lines when shrinking.
-        continue
-    return out
-
-
-def _enforce_instruction_line_cap(text: str, cap: int = 60) -> str:
-    lines = text.rstrip("\n").splitlines()
-    if len(lines) <= cap:
-        return _collapse_blank_lines(text.rstrip() + "\n")
-
-    lines = _compress_todo_lines(lines)
-    if len(lines) <= cap:
-        return _collapse_blank_lines("\n".join(lines).rstrip() + "\n")
-
-    lines = _drop_noncritical_description(lines)
-    if len(lines) <= cap:
-        return _collapse_blank_lines("\n".join(lines).rstrip() + "\n")
-
-    # Final fallback: trim non-cleanup TODOs from bottom-up.
-    idx = len(lines) - 1
-    while len(lines) > cap and idx >= 0:
-        stripped = lines[idx].strip()
-        if "<!-- TODO(" in stripped and "cleanup" not in stripped:
-            del lines[idx]
-        idx -= 1
-    return _collapse_blank_lines("\n".join(lines).rstrip() + "\n")
 
 
 def render_mandatory_instruction_from_template(
@@ -713,7 +669,7 @@ def render_mandatory_instruction_from_template(
             "{{LOCAL_CHECKS}}": _bullet_lines(_instruction_checks(domain, scan)),
         },
     )
-    return _enforce_instruction_line_cap(rendered)
+    return rendered
 
 
 def render_optional_instruction_from_template(
@@ -726,9 +682,9 @@ def render_optional_instruction_from_template(
     target = _source_of_truth(domain)
     rel_link = _relative_link(target)
     content = template_path.read_text(encoding="utf-8")
-    optional_checks = _optional_domain_checks(scan)
+    optional_checks = _optional_domain_checks(scan, apply_to)
     local_checks = optional_checks or _instruction_checks(domain, scan)
-    optional_types = _optional_domain_types_and_linting(scan)
+    optional_types = _optional_domain_types_and_linting(scan, apply_to)
     types_section = ""
     if optional_types:
         types_section = (
@@ -755,7 +711,7 @@ def render_optional_instruction_from_template(
             "{{LOCAL_CHECKS_TODO}}": _checks_todo_lines(domain),
         },
     )
-    return _enforce_instruction_line_cap(rendered)
+    return rendered
 
 
 def initialize_baseline(repo_path: Path, dry_run: bool, overwrite: bool) -> int:

@@ -9,6 +9,24 @@ description: Initialize a repository with a minimal ESPC baseline. Use when boot
 
 Initialize a repository to an executable minimal ESPC baseline while preventing over-design.
 
+## Layer Contract
+
+### Layer A: Meta-Skill Layer
+
+- Owns generation protocol, placeholders, and rendering behavior.
+- Uses generic domain terms (`core/ui/tests`) for stable abstraction.
+- MUST NOT generate knowledge from heuristics.
+- MUST keep TODO prompts as research scaffolding and require cleanup after first convergence.
+- MUST ask: if one generation rule is removed, which invariant breaks?
+
+### Layer B: Project-Rules Layer
+
+- Owns generated repository rules under `.github/*instructions*`.
+- Output files are execution rules, not template implementation notes.
+- May use concrete stack terms (`Python/QML/...`) when evidence exists.
+- MUST keep Source of Truth mapping explicit and singular by default.
+- MUST ask: does each rule have evidence, boundary, or blocking value?
+
 ## Mandatory Protocol
 
 Before generation, ask exactly these 3 questions and capture explicit answers:
@@ -51,7 +69,7 @@ The script generates:
 - optional instructions (max 5): `build/deploy/perf/security/api/ops` using dual evidence gate
   - rendered from `references/templates/optional.instructions.md`
   - each section uses required baseline + placeholder + inline question-form TODO prompts
-  - `Types and Linting` appears only when executable/static checks are detected
+  - `Types and Linting` appears only when domain-path evidence detects executable/static checks
 
 The script does not generate knowledge content files. Agent research is required.
 
@@ -72,11 +90,23 @@ The script does not generate knowledge content files. Agent research is required
 - Keep first-principles and Occam boundaries.
 - Copy content under `references/seed_repo/` verbatim.
 - Do not add extra confirmation text for seeded files in script or SKILL.
-- Keep script-generated rules minimal and generic by default.
+- Keep script-generated rules minimal and generic in Layer A.
+- Keep Layer B rules executable: keep normative lines, trim explanation noise.
 - Keep optional-domain instructions template-driven (`references/templates/optional.instructions.md`).
 - Keep TODO density section-graded: `Source of Truth` high, other sections low.
-- Keep each generated instruction within a 60-line cognitive budget.
+- Keep 60-line cognitive budget as output acceptance target (not script auto-trimming gate).
+- Keep optional checks/types domain-scoped; do not inject stack checks from unrelated paths.
 - Do not auto-write knowledge conclusions from script heuristics.
+
+## Socratic Self-Check
+
+Before finalizing initialization output, the Agent SHOULD challenge assumptions:
+
+1. Which generated rule would fail open if removed?
+2. Does each `MUST/SHOULD` constrain behavior, or just restate preference?
+3. Is every blocking check tied to the domain path that will run it?
+4. Does any Source of Truth line point to unstable or feature-specific content?
+5. Are TODO prompts still needed, or already replaceable by verified knowledge/contracts?
 
 ## Resources
 

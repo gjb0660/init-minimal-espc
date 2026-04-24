@@ -13,6 +13,11 @@ Bootstrap a repository with a minimal ESPC baseline.
 - 稳定的 source of truth
 - 最小治理结构
 
+## Two-Layer Architecture
+
+1. 元技能层（Meta-Skill Layer）：负责“如何生成”
+2. 项目规则层（Project-Rules Layer）：负责“如何执行”
+
 ## What this repository does
 
 这个仓库包含：
@@ -91,7 +96,7 @@ Bootstrap a repository with a minimal ESPC baseline.
 
     > 这是一个收敛性的技能，可以不用 `plan mode` 计划模式
 
-3. 是 `decision-import` 技能 Agent 可以：
+3. 使用 `decision-import` 技能 Agent 可以：
     - 从暂存区的修改中提取决策证据，更新 spec
 
 > 显式调用 skill 通常会优于自动触发；

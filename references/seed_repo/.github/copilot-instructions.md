@@ -15,7 +15,7 @@ Read `AGENTS.md` for workflow and execution rules.
 - Core code MUST stay under `{{CORE_APPLY_TO}}`
 - UI code MUST stay under `{{UI_APPLY_TO}}`
 - Tests MUST stay under `{{TESTS_APPLY_TO}}`
-{{PYTHON_NAMESPACE_RULE}}
+{{CORE_NAMESPACE_RULE}}
 - Docs SHOULD be human-readable export from specs.
 
 ## Writing Rules
@@ -33,9 +33,9 @@ Read `AGENTS.md` for workflow and execution rules.
 
 Before commit, MUST pass:
 
-{{PYTHON_CHECKS}}
+{{CORE_CHECKS}}
 {{UI_CHECKS}}
 
 - `npx markdownlint **/*.md .github/**/*.md`
 
-{{TEST_CHECKS}}
+{{TESTS_CHECKS}}
